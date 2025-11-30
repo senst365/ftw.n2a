@@ -152,13 +152,12 @@
             transform: translate(-50%, -50%);
             color: var(--word-color); 
             opacity: var(--word-opacity);
-            /* 字體設定：Klee One (硬筆/教科書體) 優先 */
             font-family: 'Klee One', 'Noto Sans TC', sans-serif;
             padding: 4px 10px;
             border-radius: 8px;
             font-weight: 600;
             cursor: pointer;
-            transition: transform 0.1s ease;
+            transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
             white-space: nowrap;
             min-width: 44px; 
             min-height: 44px;
@@ -169,35 +168,20 @@
             z-index: 30;
         }
 
-        /* 修正後的陰影樣式：更清晰的微陰影，避免重影 */
+        /* 陰影樣式優化 */
         #game-container.style-simple .word-target {
-            /* x偏移 y偏移 模糊半徑 顏色(深灰半透明) */
-            /* 這種陰影設定可以讓文字浮起，但不會造成雙重影像 */
             text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.7), 0 0 1px rgba(0,0,0,0.3);
         }
 
-        /* 描邊樣式 (保留作為選項，但優化黑色邊緣) */
         #game-container.style-outline .word-target {
-            text-shadow: 
-                1.5px 1.5px 0 #000, 
-                -1px -1px 0 #000,  
-                1px -1px 0 #000, 
-                -1px 1px 0 #000, 
-                1px 1px 0 #000;
+            text-shadow: 1.5px 1.5px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;
         }
-        /* 如果選黑色字，描邊改白色 */
         #game-container.style-outline .word-target[data-is-dark="true"] {
-             text-shadow: 
-                1.5px 1.5px 0 #fff, 
-                -1px -1px 0 #fff, 
-                1px -1px 0 #fff, 
-                -1px 1px 0 #fff, 
-                1px 1px 0 #fff;
+             text-shadow: 1.5px 1.5px 0 #fff, -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff, 1px 1px 0 #fff;
         }
 
         .word-target:active { transform: translate(-50%, -50%) scale(0.9); }
 
-        /* 修正後的 .found 樣式：移除複雜陰影，改用清晰的白色描邊 */
         .found {
             color: #F59E0B !important;
             text-shadow: 1px 1px 0 #fff, -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff !important;
@@ -775,7 +759,7 @@
             document.getElementById('game-view').style.display = 'flex';
             document.getElementById('current-target-word').innerText = lesson.word;
             
-            TOTAL_TARGETS = lesson.word === "施工中" ? 1 : 8;
+            TOTAL_TARGETS = lesson.word === "施工中" ? 1 : 10;
             document.getElementById('total-targets-display').innerText = TOTAL_TARGETS;
 
             const container = document.getElementById('game-container');
@@ -827,26 +811,58 @@
             const randomSize = 0.9 + Math.random() * 0.7;
             word.style.fontSize = `${randomSize}rem`;
             
-            let left, top, attempts = 0;
-            // 增加邊界緩衝區，避免文字貼邊 (5% -> 95%)
-            const padding = 5;
-            const usableRange = 100 - 2 * padding;
+            let left, top, placed = false;
+            
+            // --- 智慧分散演算法 ---
+            // 根據字數調整所需的空間 (字越長，左右碰撞半徑越大)
+            const lengthFactor = (text.length - 2) * 2; 
+            
+            // 三階段嘗試：優先寬鬆間距 -> 標準間距 -> 緊湊間距
+            const radii = [24 + lengthFactor, 18 + lengthFactor, 14 + lengthFactor];
+            
+            for (let minR of radii) {
+                if (placed) break;
+                
+                let attempts = 0;
+                const maxAttemptsPerTier = 100;
+                const padding = 8;
+                const usableRange = 100 - 2 * padding;
 
-            while (attempts < 200) {
-                left = padding + Math.random() * usableRange;
-                top = padding + Math.random() * usableRange;
-                let collision = false;
-                // 增加碰撞偵測半徑，讓文字更分散 (15 -> 18)
-                for (const pos of existingPositions) {
-                    if (Math.sqrt((left - pos.x)**2 + (top - pos.y)**2) < 18) { collision = true; break; }
+                while (attempts < maxAttemptsPerTier) {
+                    left = padding + Math.random() * usableRange;
+                    top = padding + Math.random() * usableRange;
+                    
+                    let collision = false;
+                    for (const pos of existingPositions) {
+                        // 計算兩點間的歐幾里得距離
+                        const dx = left - pos.x;
+                        const dy = top - pos.y;
+                        const dist = Math.sqrt(dx*dx + dy*dy);
+                        
+                        if (dist < minR) { 
+                            collision = true; 
+                            break; 
+                        }
+                    }
+                    
+                    if (!collision) {
+                        existingPositions.push({x: left, y: top});
+                        placed = true;
+                        break;
+                    }
+                    attempts++;
                 }
-                if (!collision) { existingPositions.push({x: left, y: top}); break; }
-                attempts++;
+            }
+            
+            // 萬一真的找不到位置 (極少發生)，隨機放置作為最後手段
+            if (!placed) {
+                 left = 5 + Math.random() * 90;
+                 top = 5 + Math.random() * 90;
+                 existingPositions.push({x: left, y: top});
             }
             
             word.style.top = top + '%'; word.style.left = left + '%';
-            // 增加旋轉角度範圍，讓畫面更生動 (30deg -> 45deg)
-            word.style.transform = `translate(-50%, -50%) rotate(${(Math.random()-0.5)*90}deg)`;
+            word.style.transform = `translate(-50%, -50%) rotate(${(Math.random()-0.5)*60}deg)`;
 
             const handleInteract = (e) => {
                 e.preventDefault(); e.stopPropagation();
